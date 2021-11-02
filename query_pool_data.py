@@ -16,7 +16,7 @@ logging.basicConfig(
     "%(module)s:%(lineno)d] :: %(message)s",
     datefmt="%Y-%m-%d:%H:%M:%S",
 )
-DATA_OUTPUT_DIRECTORY = "./data"
+DATA_DIRECTORY = "./data"
 
 
 @click.command()
@@ -37,11 +37,11 @@ def main(date_start: str, date_end: str, filename: str):
     connect_if_not_connect()
     eth_pools = get_eth_pools()
 
-    swap_revenue_data = pandas.DataFrame()
-    filename = os.path.join(DATA_OUTPUT_DIRECTORY, filename)
+    queried_data = pandas.DataFrame()
+    filename = os.path.join(DATA_DIRECTORY, filename)
     if os.path.exists(filename):
         logging.info(f"File {filename} exists. Loading ...")
-        swap_revenue_data = pandas.read_parquet(filename)
+        queried_data = pandas.read_parquet(filename)
 
     try:
 
@@ -68,10 +68,10 @@ def main(date_start: str, date_end: str, filename: str):
 
                 for pool_name, pool_details in eth_pools.items():
 
-                    if not swap_revenue_data.empty and pool_data_exists(
+                    if not queried_data.empty and pool_data_exists(
                             pool_name,
                             block_number,
-                            swap_revenue_data
+                            queried_data
                     ):
                         logging.debug(
                             f"Block {block_number} for pool {pool_name} "
@@ -116,15 +116,15 @@ def main(date_start: str, date_end: str, filename: str):
             )
 
             # join df
-            swap_revenue_data = pandas.concat([swap_revenue_data, pool_data])
+            queried_data = pandas.concat([queried_data, pool_data])
 
         logging.info(f"Saving queried data into {filename} ...")
-        swap_revenue_data.to_parquet(filename)
+        queried_data.to_parquet(filename)
 
     except Exception as err:  # catch all exceptions
 
-        if not swap_revenue_data.empty:
-            swap_revenue_data.to_parquet(filename)
+        if not queried_data.empty:
+            queried_data.to_parquet(filename)
 
         raise err
 
