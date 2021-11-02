@@ -1,3 +1,6 @@
 black
 eth-brownie
 pandas
+python-dateutil
+requests
+click

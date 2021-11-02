@@ -1,7 +1,15 @@
+import dateutil
 import requests
 
 
 ETH_BLOCKS_SUBGRAPH = "https://api.thegraph.com/subgraphs/name/blocklytics/ethereum-blocks"
+
+
+def get_block_for_datestring(datestring: str) -> int:
+
+    query_timestamp = dateutil.parser.parse(datestring)
+
+    return get_block_for_timestamp(timestamp=query_timestamp)
 
 
 def get_block_for_timestamp(timestamp: int):
