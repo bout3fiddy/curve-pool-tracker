@@ -13,12 +13,14 @@ def get_pools(registry: str):
     for pool_id in range(pool_count):
 
         pool_addr = registry_contract.pool_list(pool_id)
-        gauge_addr = registry_contract.get_gauges(pool_addr)
         lp_token_addr = registry_contract.get_lp_token(pool_addr)
         pool_token_contract = init_contract(lp_token_addr)
         pool_token_name = pool_token_contract.name()
 
-        data[pool_token_name] = [pool_addr, gauge_addr, lp_token_addr]
+        data[pool_token_name] = [
+            init_contract(pool_addr),
+            init_contract(lp_token_addr)
+        ]
 
     return data
 

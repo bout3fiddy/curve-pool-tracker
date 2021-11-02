@@ -1,13 +1,15 @@
-import dateutil
+import dateutil.parser
 import requests
 
 
-ETH_BLOCKS_SUBGRAPH = "https://api.thegraph.com/subgraphs/name/blocklytics/ethereum-blocks"
+ETH_BLOCKS_SUBGRAPH = (
+    "https://api.thegraph.com/subgraphs/name/blocklytics/ethereum-blocks"
+)
 
 
 def get_block_for_datestring(datestring: str) -> int:
 
-    query_timestamp = dateutil.parser.parse(datestring)
+    query_timestamp = int(dateutil.parser.parse(datestring).timestamp())
 
     return get_block_for_timestamp(timestamp=query_timestamp)
 
@@ -33,7 +35,7 @@ def get_block_for_timestamp(timestamp: int):
     payload = dict(r.json())
 
     try:
-        return int(payload['cache']['blocks'][0]['number'])
+        return int(payload['data']['blocks'][0]['number'])
     except KeyError:
         return None
     except IndexError:
@@ -42,3 +44,4 @@ def get_block_for_timestamp(timestamp: int):
 
 if __name__ == "__main__":
     print(get_block_for_timestamp(timestamp=1577836800))
+    print(get_block_for_datestring("20211101T2145"))

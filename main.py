@@ -1,79 +1,132 @@
+import datetime
+import logging
 import os
 import click
 
 import brownie
 import pandas
 
-from utils.contract_utils import init_contract
 from utils.curve_utils.registry import get_eth_pools
 from utils.eth_blocks_utils import get_block_for_datestring
 from utils.network_utils import connect_if_not_connect
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s,%(msecs)d-4s %(levelname)-4s [%(filename)s "
+    "%(module)s:%(lineno)d] :: %(message)s",
+    datefmt="%Y-%m-%d:%H:%M:%S",
+)
+DATA_OUTPUT_DIRECTORY = "./data"
 
 
 @click.command()
 @click.option("--date-start", "date_start", type=str)
 @click.option("--date-end", "date_end", type=str)
 @click.option("--filename", "filename", type=str)
-def main(date_start: int, date_end: int, filename: str):
+def main(date_start: str, date_end: str, filename: str):
 
     block_start = get_block_for_datestring(date_start)
     block_end = get_block_for_datestring(date_end)
+    blocks = list(range(block_start, block_end))
+
+    logging.info(
+        f"Querying between: "
+        f"{block_start} ({date_start}) : {block_end} ({date_end})"
+    )
 
     connect_if_not_connect()
     eth_pools = get_eth_pools()
 
     swap_revenue_data = pandas.DataFrame()
+    filename = os.path.join(DATA_OUTPUT_DIRECTORY, filename)
     if os.path.exists(filename):
+        logging.info(f"File {filename} exists. Loading ...")
         swap_revenue_data = pandas.read_parquet(filename)
 
-    for block_number in range(block_start, block_end):
+    try:
 
-        timestamp = brownie.web3.eth.getBlock(block_number)['timestamp']
+        for block_number in blocks:
 
-        with brownie.multicall(block_identifier=block_number):
+            timestamp = brownie.web3.eth.getBlock(block_number)['timestamp']
+            logging.info(
+                f"Processing data for block: {block_number} ({timestamp})"
+            )
+            calculation_time_start = datetime.datetime.now()
+            total_calculation_time = 0
 
-            for pool_name, pool_details in eth_pools.items():
+            pool_data = {
+                "timestamp": [],
+                "block_number": [],
+                "pool_name": [],
+                "pool_addr": [],
+                "lp_token_addr": [],
+                "lp_token_virtual_price": [],
+                "total_supply_lp_token": []
+            }
 
-                if pool_data_exists(
-                        pool_name,
-                        block_number,
-                        swap_revenue_data
-                ):
-                    continue
+            with brownie.multicall(block_identifier=block_number):
 
-                pool_data = {}
+                for pool_name, pool_details in eth_pools.items():
 
-                pool_addr = pool_details[0]
-                gauge_addr = pool_details[1]
-                lp_token_addr = pool_details[2]
+                    if not swap_revenue_data.empty and pool_data_exists(
+                            pool_name,
+                            block_number,
+                            swap_revenue_data
+                    ):
+                        logging.debug(
+                            f"Block {block_number} for pool {pool_name} "
+                            f"already computed ... skipping."
+                        )
+                        continue
 
-                lp_token_contract = init_contract(lp_token_addr)
-                pool_contract = init_contract(pool_addr)
+                    pool = pool_details[0]
+                    lp_token = pool_details[1]
 
-                lp_data = get_liquidity_pool_data(
-                    pool_contract=pool_contract,
-                    lp_token_contract=lp_token_contract
-                )
+                    virtual_price = pool.get_virtual_price() * 1e-18
+                    total_supply_lp_token = lp_token.totalSupply() * 1e-18
 
-                # pool data
-                pool_data['timestamp'] = timestamp
-                pool_data['block_number'] = block_number
-                pool_data['pool_name'] = pool_name
-                pool_data['pool_addr'] = pool_addr
-                pool_data['lp_token_addr'] = lp_token_addr
-                pool_data['gauge_addr'] = gauge_addr
-                pool_data['lp_token_virtual_price'] = lp_data['virtual_price']
-                pool_data['total_supply_lp_token'] = lp_data['total_supply_lp_token']
+                    # pool data
+                    pool_data['timestamp'].append(timestamp)
+                    pool_data['block_number'].append(block_number)
+                    pool_data['pool_name'].append(pool_name)
+                    pool_data['pool_addr'].append(pool.address)
+                    pool_data['lp_token_addr'].append(lp_token.address)
+                    pool_data['lp_token_virtual_price'].append(virtual_price)
+                    pool_data['total_supply_lp_token'].append(
+                        total_supply_lp_token
+                    )
 
-                pool_data = pandas.DataFrame(
-                    data=pool_data,
-                    index=[pandas.to_datetime(pool_data['timestamp'], unit='s')]
-                )
+            calculation_time = (
+                    datetime.datetime.now() - calculation_time_start
+            ).total_seconds()
+            logging.info(
+                f"Calculation for 1 block took "
+                f"{round(calculation_time, 2)} seconds. "
+            )
+            logging.info(
+                f"Elapsed querying time: "
+                f"{round(total_calculation_time/60, 2)} minutes. "
+                f"Estimated time left: "
+                f"{round(calculation_time * len(blocks) / 60, 2)} minutes."
+            )
 
-                # join df
-                swap_revenue_data = pandas.concat([swap_revenue_data, pool_data])
+            pool_data = pandas.DataFrame(
+                data=pool_data,
+                index=[pandas.to_datetime(pool_data['timestamp'], unit='s')]
+            )
 
-    swap_revenue_data.to_parquet(filename)
+            # join df
+            swap_revenue_data = pandas.concat([swap_revenue_data, pool_data])
+
+        logging.info(f"Saving queried data into {filename} ...")
+        swap_revenue_data.to_parquet(filename)
+
+    except Exception as err:  # catch all exceptions
+
+        if not swap_revenue_data.empty:
+            swap_revenue_data.to_parquet(filename)
+
+        raise err
 
 
 def pool_data_exists(
@@ -85,19 +138,6 @@ def pool_data_exists(
             (data['block_number'] == block_number) &
             (data['pool_name'] == pool_name)
     ).any()
-
-
-def get_liquidity_pool_data(
-    pool_contract: brownie.Contract,
-    lp_token_contract: brownie.Contract,
-):
-    lp_token_virtual_price = pool_contract.get_virtual_price() * 1e-18
-    total_supply_lp_token = lp_token_contract.totalSupply() * 1e-18
-
-    return {
-        'virtual_price': lp_token_virtual_price,
-        'total_supply_lp_token': total_supply_lp_token
-    }
 
 
 if __name__ == "__main__":

@@ -4,3 +4,5 @@ pandas
 python-dateutil
 requests
 click
+pyarrow
+fastparquet
